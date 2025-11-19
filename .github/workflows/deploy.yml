@@ -1,0 +1,70 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy Backend to Production
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Add server to known hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
+            set -e
+            echo "🚀 Starting deployment..."
+            
+            # Navigate to backend directory
+            cd /opt/backend
+            
+            # Pull latest changes
+            echo "📥 Pulling latest changes..."
+            git fetch origin
+            git reset --hard origin/main
+            
+            # Install dependencies
+            echo "📦 Installing dependencies..."
+            npm ci --production=false
+            
+            # Build TypeScript project
+            echo "🔨 Building TypeScript..."
+            npm run build
+            
+            # Restart PM2 process
+            echo "🔄 Restarting application..."
+            pm2 restart onescore-backend || pm2 start ecosystem.config.js
+            
+            # Save PM2 process list
+            pm2 save
+            
+            # Verify deployment
+            echo "✅ Verifying deployment..."
+            sleep 5
+            pm2 status
+            
+            echo "🎉 Deployment completed successfully!"
+          ENDSSH
+
+      - name: Verify deployment
+        run: |
+          echo "🔍 Checking if application is running..."
+          ssh -o StrictHostKeyChecking=no ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
+            pm2 status onescore-backend
+            pm2 logs onescore-backend --lines 10 --nostream
+          ENDSSH
+

@@ -158,6 +158,8 @@ Health endpoint for uptime checks: `GET https://api.your-domain.com/health`.
 ---
 
 ## 10. Updating
+
+### Manual Update
 ```bash
 cd /var/www/onescore-backend/backend
 git pull origin main
@@ -165,6 +167,42 @@ npm install --production
 npm run build
 pm2 reload onescore-backend
 ```
+
+### Automated Deployment with GitHub Actions
+
+The repository includes a GitHub Actions workflow (`.github/workflows/deploy.yml`) that automatically deploys to the DigitalOcean droplet on every push to the `main` branch.
+
+#### Setup Instructions
+
+1. **Configure GitHub Secrets**
+   - Go to your GitHub repository → Settings → Secrets and variables → Actions
+   - Add the following secrets:
+     - `DEPLOY_HOST`: Your droplet IP address (e.g., `161.35.190.242`)
+     - `DEPLOY_USER`: SSH user (usually `root`)
+     - `DEPLOY_SSH_KEY`: Your private SSH key content (the same key used for manual SSH access)
+
+2. **How to get your SSH private key:**
+   ```bash
+   cat ~/.ssh/id_rsa
+   ```
+   Copy the entire output including `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----`
+
+3. **Workflow Behavior**
+   - Triggers automatically on every push to `main` branch
+   - Pulls latest code from GitHub
+   - Installs dependencies
+   - Builds TypeScript project
+   - Restarts PM2 process
+   - Verifies deployment success
+
+4. **View Deployment Status**
+   - Go to your GitHub repository → Actions tab
+   - You'll see deployment runs with success/failure status
+   - Click on a run to see detailed logs
+
+#### Manual Workflow Trigger
+If you need to trigger a deployment manually:
+- Go to Actions tab → Select "Deploy to DigitalOcean" workflow → Click "Run workflow"
 
 ---
 
