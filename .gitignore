@@ -1,0 +1,34 @@
+# Node dependencies
+node_modules/
+
+# Build outputs
+dist/
+
+# Logs
+logs/
+*.log
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+
+# Uploaded assets
+uploads/
+!uploads/.gitkeep
+
+# Coverage / test artifacts
+coverage/
+.nyc_output/
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# System files
+.DS_Store
+Thumbs.db
+
