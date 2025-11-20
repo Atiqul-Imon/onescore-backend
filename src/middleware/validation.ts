@@ -238,3 +238,74 @@ export const validateDateRange = [
     .withMessage('End date must be a valid ISO 8601 date'),
   handleValidationErrors
 ];
+
+export const validateTeamSlug = [
+  param('slug')
+    .trim()
+    .matches(/^[a-z0-9-]+$/i)
+    .withMessage('Invalid team slug'),
+  handleValidationErrors
+];
+
+export const validateCricketTeamPayload = [
+  body('slug')
+    .if((_value, { req }) => !req.params.slug)
+    .notEmpty()
+    .withMessage('Slug is required')
+    .bail()
+    .matches(/^[a-z0-9-]+$/i)
+    .withMessage('Slug must be alphanumeric with dashes'),
+  body('name')
+    .notEmpty()
+    .withMessage('Team name is required'),
+  body('shortName')
+    .notEmpty()
+    .withMessage('Short name is required'),
+  body('matchKey')
+    .notEmpty()
+    .withMessage('Match key is required'),
+  body('flag')
+    .notEmpty()
+    .withMessage('Flag is required'),
+  body('captains')
+    .optional()
+    .isObject()
+    .withMessage('Captains must be an object'),
+  body('ranking')
+    .optional()
+    .isObject()
+    .withMessage('Ranking must be an object'),
+  body('colors')
+    .optional()
+    .isObject()
+    .withMessage('Colors must be an object'),
+  body('fanPulse.rating')
+    .optional()
+    .isFloat({ min: 0, max: 5 })
+    .withMessage('Fan pulse rating must be between 0 and 5'),
+  body('fanPulse.votes')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Fan pulse votes must be >= 0'),
+  body('iccTitles')
+    .optional()
+    .isArray()
+    .withMessage('ICC titles must be an array'),
+  body('keyPlayers')
+    .optional()
+    .isArray()
+    .withMessage('Key players must be an array'),
+  body('statLeaders')
+    .optional()
+    .isObject()
+    .withMessage('Stat leaders must be an object'),
+  body('recordLinks')
+    .optional()
+    .isArray()
+    .withMessage('Record links must be an array'),
+  body('timeline')
+    .optional()
+    .isArray()
+    .withMessage('Timeline must be an array'),
+  handleValidationErrors
+];

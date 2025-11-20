@@ -242,60 +242,6 @@ export const getCricketSeries = asyncHandler(async (req: Request, res: Response)
   });
 });
 
-// Get cricket teams
-export const getCricketTeams = asyncHandler(async (req: Request, res: Response) => {
-  // Try to get from cache first
-  const cachedData = await redisClient.get('cricket_teams');
-  
-  if (cachedData) {
-    return res.status(StatusCodes.OK).json({
-      success: true,
-      data: JSON.parse(cachedData)
-    });
-  }
-
-  const teams = await CricketMatch.aggregate([
-    {
-      $facet: {
-        homeTeams: [
-          { $group: {
-            _id: '$teams.home.id',
-            name: { $first: '$teams.home.name' },
-            shortName: { $first: '$teams.home.shortName' },
-            flag: { $first: '$teams.home.flag' },
-            matchCount: { $sum: 1 }
-          }}
-        ],
-        awayTeams: [
-          { $group: {
-            _id: '$teams.away.id',
-            name: { $first: '$teams.away.name' },
-            shortName: { $first: '$teams.away.shortName' },
-            flag: { $first: '$teams.away.flag' },
-            matchCount: { $sum: 1 }
-          }}
-        ]
-      }
-    },
-    {
-      $project: {
-        teams: { $concatArrays: ['$homeTeams', '$awayTeams'] }
-      }
-    },
-    { $unwind: '$teams' },
-    { $replaceRoot: { newRoot: '$teams' } },
-    { $sort: { matchCount: -1 } }
-  ]);
-
-  // Cache for 1 hour
-  await redisClient.set('cricket_teams', JSON.stringify(teams), 3600);
-
-  res.status(StatusCodes.OK).json({
-    success: true,
-    data: teams
-  });
-});
-
 // Get cricket players
 export const getCricketPlayers = asyncHandler(async (req: Request, res: Response) => {
   const { page = 1, limit = 20, q } = req.query;

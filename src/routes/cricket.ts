@@ -6,16 +6,21 @@ import {
   getCricketFixtures,
   getCricketResults,
   getCricketSeries,
-  getCricketTeams,
   getCricketPlayers,
   getCricketStats
 } from '../controllers/cricketController';
+import { 
+  getCricketTeamDetail, 
+  getCricketTeamPlayersBySlug, 
+  getCricketTeamSummaries 
+} from '../controllers/cricketTeamController';
 import { authenticate } from '../middleware/auth';
 import { 
   validateMatchId, 
   validatePagination, 
   validateDateRange,
-  validateSearch 
+  validateSearch,
+  validateTeamSlug
 } from '../middleware/validation';
 
 const router = Router();
@@ -27,7 +32,9 @@ router.get('/matches/fixtures', validatePagination, validateDateRange, getCricke
 router.get('/matches/results', validatePagination, validateDateRange, getCricketResults);
 router.get('/matches/:id', validateMatchId, getCricketMatchById);
 router.get('/series', validatePagination, getCricketSeries);
-router.get('/teams', getCricketTeams);
+router.get('/teams', getCricketTeamSummaries);
+router.get('/teams/:slug', validateTeamSlug, getCricketTeamDetail);
+router.get('/teams/:slug/players', validateTeamSlug, validatePagination, getCricketTeamPlayersBySlug);
 router.get('/players', validatePagination, validateSearch, getCricketPlayers);
 router.get('/stats', validateSearch, getCricketStats);
 
