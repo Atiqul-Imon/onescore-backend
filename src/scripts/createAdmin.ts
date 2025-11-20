@@ -6,9 +6,9 @@ async function createAdmin() {
   try {
     await connectDatabase();
 
-    const email = 'admin@onescore.com';
-    const password = 'admin123';
-    const name = 'Admin User';
+    const email = process.env.ADMIN_EMAIL || 'admin@onescore.com';
+    const password = process.env.ADMIN_PASSWORD || 'admin123';
+    const name = process.env.ADMIN_NAME || 'Admin User';
 
     // Check if admin already exists
     const existing = await User.findOne({ email });

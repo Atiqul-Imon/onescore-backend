@@ -101,7 +101,8 @@ export const adminUpsertCricketTeam = asyncHandler(async (req: Request, res: Res
     },
   ).lean();
 
-  await redisClient.del('cricket_teams', `cricket_team_detail:${slug}`);
+  await redisClient.del('cricket_teams');
+  await redisClient.del(`cricket_team_detail:${slug}`);
 
   res.status(slugParam ? StatusCodes.OK : StatusCodes.CREATED).json({
     success: true,
