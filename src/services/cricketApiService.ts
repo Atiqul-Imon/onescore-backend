@@ -14,7 +14,7 @@ class CricketApiService {
 
   constructor() {
     this.config = {
-      baseUrl: process.env.CRICKET_API_BASE_URL || 'https://cricket-api.com/api',
+      baseUrl: process.env.CRICKET_API_BASE_URL || 'https://api.cricapi.com/v1',
       apiKey: process.env.CRICKET_API_KEY || '',
       timeout: 10000,
     };
@@ -23,8 +23,10 @@ class CricketApiService {
       baseURL: this.config.baseUrl,
       timeout: this.config.timeout,
       headers: {
-        'Authorization': `Bearer ${this.config.apiKey}`,
         'Content-Type': 'application/json',
+      },
+      params: {
+        apikey: this.config.apiKey, // Cricket Data API uses query parameter
       },
     });
 
@@ -67,15 +69,29 @@ class CricketApiService {
         return JSON.parse(cachedData);
       }
 
-      const response = await this.client.get('/matches/live');
+      // Cricket Data API format: /matches?apikey=KEY&status=live
+      const response = await this.client.get('/matches', {
+        params: { status: 'live' }
+      });
+      
+      // Response format: { status: "success", data: [...], info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const matches = response.data.data || [];
 
-      // Cache for 30 seconds
-      await redisClient.set(cacheKey, JSON.stringify(matches), 30);
+      // Cache duration: 30 seconds in development, 15 minutes in production
+      const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 30;
+      await redisClient.set(cacheKey, JSON.stringify(matches), cacheDuration);
 
       return matches;
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Error fetching live cricket matches:', error);
+      if (error.response) {
+        logger.error('Response status:', error.response.status);
+        logger.error('Response data:', error.response.data);
+      }
       throw new Error('Failed to fetch live cricket matches');
     }
   }
@@ -90,7 +106,16 @@ class CricketApiService {
         return JSON.parse(cachedData);
       }
 
-      const response = await this.client.get('/matches/upcoming');
+      // Cricket Data API format: /matches?apikey=KEY&status=upcoming
+      const response = await this.client.get('/matches', {
+        params: { status: 'upcoming' }
+      });
+      
+      // Response format: { status: "success", data: [...], info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const matches = response.data.data || [];
 
       // Cache for 5 minutes
@@ -113,7 +138,16 @@ class CricketApiService {
         return JSON.parse(cachedData);
       }
 
-      const response = await this.client.get('/matches/completed');
+      // Cricket Data API format: /matches?apikey=KEY&status=completed
+      const response = await this.client.get('/matches', {
+        params: { status: 'completed' }
+      });
+      
+      // Response format: { status: "success", data: [...], info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const matches = response.data.data || [];
 
       // Cache for 1 hour
@@ -137,6 +171,12 @@ class CricketApiService {
       }
 
       const response = await this.client.get(`/matches/${matchId}`);
+      
+      // Response format: { status: "success", data: {...}, info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const match = response.data.data;
 
       // Cache for 1 minute
@@ -160,6 +200,12 @@ class CricketApiService {
       }
 
       const response = await this.client.get('/series');
+      
+      // Response format: { status: "success", data: [...], info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const series = response.data.data || [];
 
       // Cache for 1 hour
@@ -183,6 +229,12 @@ class CricketApiService {
       }
 
       const response = await this.client.get('/teams');
+      
+      // Response format: { status: "success", data: [...], info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const teams = response.data.data || [];
 
       // Cache for 1 hour
@@ -207,6 +259,12 @@ class CricketApiService {
 
       const url = teamId ? `/teams/${teamId}/players` : '/players';
       const response = await this.client.get(url);
+      
+      // Response format: { status: "success", data: [...], info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const players = response.data.data || [];
 
       // Cache for 1 hour
@@ -230,6 +288,12 @@ class CricketApiService {
       }
 
       const response = await this.client.get(`/players/${playerId}/stats`);
+      
+      // Response format: { status: "success", data: {...}, info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const stats = response.data.data;
 
       // Cache for 30 minutes
@@ -253,6 +317,12 @@ class CricketApiService {
       }
 
       const response = await this.client.get(`/matches/${matchId}/stats`);
+      
+      // Response format: { status: "success", data: {...}, info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const stats = response.data.data;
 
       // Cache for 5 minutes
@@ -278,6 +348,12 @@ class CricketApiService {
       const response = await this.client.get('/matches/search', {
         params: { q: query, ...filters }
       });
+      
+      // Response format: { status: "success", data: [...], info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const matches = response.data.data || [];
 
       // Cache for 5 minutes
@@ -301,6 +377,12 @@ class CricketApiService {
       }
 
       const response = await this.client.get(`/matches/${matchId}/live`);
+      
+      // Response format: { status: "success", data: {...}, info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const liveScore = response.data.data;
 
       // Cache for 10 seconds
@@ -324,6 +406,12 @@ class CricketApiService {
       }
 
       const response = await this.client.get(`/matches/${matchId}/commentary`);
+      
+      // Response format: { status: "success", data: [...], info: {...} }
+      if (response.data.status !== 'success') {
+        throw new Error(response.data.message || 'API returned non-success status');
+      }
+      
       const commentary = response.data.data || [];
 
       // Cache for 30 seconds

@@ -3,6 +3,8 @@ import { CricketMatch } from '../models/CricketMatch';
 import { redisClient } from '../utils/redis';
 import { StatusCodes } from 'http-status-codes';
 import { asyncHandler } from '../middleware/errorHandler';
+import { cricketApiService } from '../services/cricketApiService';
+import { transformApiMatchToFrontend } from '../utils/matchTransformers';
 
 // Get all cricket matches with pagination and filters
 export const getCricketMatches = asyncHandler(async (req: Request, res: Response) => {
@@ -71,27 +73,49 @@ export const getCricketMatches = asyncHandler(async (req: Request, res: Response
 
 // Get live cricket matches
 export const getLiveCricketMatches = asyncHandler(async (req: Request, res: Response) => {
-  // Try to get from cache first
-  const cachedData = await redisClient.get('live_cricket_matches');
-  
-  if (cachedData) {
-    return res.status(StatusCodes.OK).json({
+  try {
+    // Try to get from cache first
+    const cachedData = await redisClient.get('live_cricket_matches');
+    
+    if (cachedData) {
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: JSON.parse(cachedData)
+      });
+    }
+
+    // Fetch from external API
+    const apiMatches = await cricketApiService.getLiveMatches();
+    
+    // Transform API response to frontend format
+    const transformedMatches = apiMatches.map(transformApiMatchToFrontend);
+    
+    // Filter only live matches (API might return some completed)
+    const liveMatches = transformedMatches.filter(match => 
+      match.status === 'live' || (match.matchStarted && !match.matchEnded)
+    );
+    
+    // Cache duration: 30 seconds in development, 15 minutes in production
+    // This keeps us within the 100 requests/day API limit
+    const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 30; // 15 min vs 30 sec
+    await redisClient.set('live_cricket_matches', JSON.stringify(liveMatches), cacheDuration);
+
+    res.status(StatusCodes.OK).json({
       success: true,
-      data: JSON.parse(cachedData)
+      data: liveMatches
+    });
+  } catch (error: any) {
+    // Fallback to database if API fails
+    const dbMatches = await CricketMatch.find({ status: 'live' })
+      .sort({ startTime: -1 })
+      .lean();
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: dbMatches,
+      warning: 'Using cached data - API unavailable'
     });
   }
-
-  const liveMatches = await CricketMatch.find({ status: 'live' })
-    .sort({ startTime: -1 })
-    .lean();
-
-  // Cache for 30 seconds
-  await redisClient.set('live_cricket_matches', JSON.stringify(liveMatches), 30);
-
-  res.status(StatusCodes.OK).json({
-    success: true,
-    data: liveMatches
-  });
 });
 
 // Get cricket fixtures (upcoming matches)

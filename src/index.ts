@@ -60,10 +60,26 @@ app.use(helmet({
   },
 }));
 
-// CORS configuration
+// CORS configuration - support multiple origins for production
+const corsOrigins = process.env['CORS_ORIGIN'] 
+  ? process.env['CORS_ORIGIN'].split(',').map(origin => origin.trim())
+  : ["http://localhost:3000"];
+
 app.use(cors({
-  origin: process.env['CORS_ORIGIN'] || "http://localhost:3000",
-  credentials: true
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
+    if (corsOrigins.includes(origin) || corsOrigins.includes('*')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
 // Rate limiting - more lenient in development
