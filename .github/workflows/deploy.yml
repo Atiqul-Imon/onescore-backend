@@ -24,8 +24,9 @@ jobs:
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy to server
+        timeout-minutes: 10
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=60 ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
             set -e
             echo "🚀 Starting deployment..."
             
@@ -37,34 +38,35 @@ jobs:
             git fetch origin
             git reset --hard origin/main
             
-            # Install dependencies
+            # Install dependencies (including dev dependencies for build)
             echo "📦 Installing dependencies..."
-            npm ci --production=false
+            npm ci
             
             # Build TypeScript project
             echo "🔨 Building TypeScript..."
             npm run build
             
-            # Restart PM2 process
+            # Restart PM2 process with updated environment
             echo "🔄 Restarting application..."
-            pm2 restart onescore-backend || pm2 start ecosystem.config.js
+            pm2 restart onescore-backend --update-env || pm2 start ecosystem.config.js
             
             # Save PM2 process list
             pm2 save
             
             # Verify deployment
             echo "✅ Verifying deployment..."
-            sleep 5
-            pm2 status
+            sleep 3
+            pm2 status onescore-backend
             
             echo "🎉 Deployment completed successfully!"
           ENDSSH
 
       - name: Verify deployment
+        timeout-minutes: 2
         run: |
           echo "🔍 Checking if application is running..."
-          ssh -o StrictHostKeyChecking=no ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=60 ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
             pm2 status onescore-backend
-            pm2 logs onescore-backend --lines 10 --nostream
+            curl -f http://localhost:5000/health || echo "⚠️ Health check failed"
           ENDSSH
 
