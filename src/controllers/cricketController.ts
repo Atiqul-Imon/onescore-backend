@@ -5,6 +5,7 @@ import { StatusCodes } from 'http-status-codes';
 import { asyncHandler } from '../middleware/errorHandler';
 import { cricketApiService } from '../services/cricketApiService';
 import { transformApiMatchToFrontend } from '../utils/matchTransformers';
+import { logger } from '../utils/logger';
 
 // Get all cricket matches with pagination and filters
 export const getCricketMatches = asyncHandler(async (req: Request, res: Response) => {
