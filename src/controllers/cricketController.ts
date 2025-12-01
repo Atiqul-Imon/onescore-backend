@@ -147,10 +147,14 @@ export const getCricketFixtures = asyncHandler(async (req: Request, res: Respons
     // Transform API response to frontend format
     const transformedMatches = apiMatches.map(transformApiMatchToFrontend);
     
-    // Filter only upcoming matches (API might return some live/completed)
-    const upcomingMatches = transformedMatches.filter(match => 
-      match.status === 'upcoming' || (!match.matchStarted && match.status !== 'completed')
-    );
+    // Filter only upcoming matches
+    // The transformer sets status based on matchStarted/matchEnded, but we also check dates
+    const now = new Date();
+    const upcomingMatches = transformedMatches.filter(match => {
+      const matchDate = new Date(match.startTime);
+      return match.status === 'upcoming' || 
+             (!match.matchStarted && !match.matchEnded && matchDate > now);
+    });
 
     // Apply filters if provided
     let filteredMatches = upcomingMatches;

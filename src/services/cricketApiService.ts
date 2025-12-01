@@ -106,9 +106,10 @@ class CricketApiService {
         return JSON.parse(cachedData);
       }
 
-      // Cricket Data API format: /matches?apikey=KEY&status=upcoming
+      // Cricket Data API: Get all matches and filter for upcoming
+      // Note: The API's status=upcoming might not work, so we fetch all and filter
       const response = await this.client.get('/matches', {
-        params: { status: 'upcoming' }
+        params: {} // Get all matches, we'll filter client-side
       });
       
       // Response format: { status: "success", data: [...], info: {...} }
@@ -116,12 +117,25 @@ class CricketApiService {
         throw new Error(response.data.message || 'API returned non-success status');
       }
       
-      const matches = response.data.data || [];
+      const allMatches = response.data.data || [];
+      
+      // Filter for truly upcoming matches:
+      // 1. Not started yet (matchStarted: false)
+      // 2. Not ended (matchEnded: false)
+      // 3. Date is in the future
+      const now = new Date();
+      const upcomingMatches = allMatches.filter((match: any) => {
+        const matchDate = new Date(match.dateTimeGMT || match.date);
+        return !match.matchStarted && 
+               !match.matchEnded && 
+               matchDate > now;
+      });
 
-      // Cache for 5 minutes
-      await redisClient.set(cacheKey, JSON.stringify(matches), 300);
+      // Cache duration: 15 minutes in production, 5 minutes in development
+      const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 300;
+      await redisClient.set(cacheKey, JSON.stringify(upcomingMatches), cacheDuration);
 
-      return matches;
+      return upcomingMatches;
     } catch (error) {
       logger.error('Error fetching upcoming cricket matches:', error);
       throw new Error('Failed to fetch upcoming cricket matches');
