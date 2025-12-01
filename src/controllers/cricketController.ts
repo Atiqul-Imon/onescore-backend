@@ -270,39 +270,119 @@ export const getCricketResults = asyncHandler(async (req: Request, res: Response
     endDate 
   } = req.query;
 
-  const skip = (Number(page) - 1) * Number(limit);
-  
-  const filter: any = { status: 'completed' };
-  
-  if (format) filter.format = format;
-  if (series) filter.series = new RegExp(series as string, 'i');
-  
-  if (startDate || endDate) {
-    filter.startTime = {};
-    if (startDate) filter.startTime.$gte = new Date(startDate as string);
-    if (endDate) filter.startTime.$lte = new Date(endDate as string);
-  }
+  try {
+    // Try to get from cache first
+    const cacheKey = `cricket_results:${JSON.stringify(req.query)}`;
+    const cachedData = await redisClient.get(cacheKey);
+    
+    if (cachedData) {
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: JSON.parse(cachedData)
+      });
+    }
 
-  const results = await CricketMatch.find(filter)
-    .sort({ startTime: -1 })
-    .skip(skip)
-    .limit(Number(limit))
-    .lean();
+    // Fetch from external API
+    const apiMatches = await cricketApiService.getCompletedMatches();
+    
+    // Transform API response to frontend format
+    const transformedMatches = apiMatches.map(transformApiMatchToFrontend);
+    
+    // Filter only completed matches
+    const completedMatches = transformedMatches.filter(match => 
+      match.status === 'completed' || match.matchEnded
+    );
 
-  const total = await CricketMatch.countDocuments(filter);
+    // Apply filters if provided
+    let filteredMatches = completedMatches;
+    
+    if (format) {
+      filteredMatches = filteredMatches.filter(m => m.format === format);
+    }
+    
+    if (series) {
+      const seriesRegex = new RegExp(series as string, 'i');
+      filteredMatches = filteredMatches.filter(m => 
+        m.series && seriesRegex.test(m.series)
+      );
+    }
+    
+    if (startDate || endDate) {
+      filteredMatches = filteredMatches.filter(m => {
+        const matchDate = new Date(m.startTime);
+        if (startDate && matchDate < new Date(startDate as string)) return false;
+        if (endDate && matchDate > new Date(endDate as string)) return false;
+        return true;
+      });
+    }
 
-  res.status(StatusCodes.OK).json({
-    success: true,
-    data: {
-      results,
+    // Sort by start time (descending - most recent first)
+    filteredMatches.sort((a, b) => 
+      new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+    );
+
+    // Apply pagination
+    const skip = (Number(page) - 1) * Number(limit);
+    const paginatedMatches = filteredMatches.slice(skip, skip + Number(limit));
+    const total = filteredMatches.length;
+
+    const result = {
+      results: paginatedMatches,
       pagination: {
         current: Number(page),
         pages: Math.ceil(total / Number(limit)),
         total,
         limit: Number(limit)
       }
+    };
+
+    // Cache duration: 1 hour in production, 15 minutes in development
+    const cacheDuration = process.env.NODE_ENV === 'production' ? 3600 : 900;
+    await redisClient.set(cacheKey, JSON.stringify(result), cacheDuration);
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: result
+    });
+  } catch (error: any) {
+    logger.error('Error fetching results from API:', error);
+    
+    // Fallback to database if API fails
+    const skip = (Number(page) - 1) * Number(limit);
+    
+    const filter: any = { status: 'completed' };
+    
+    if (format) filter.format = format;
+    if (series) filter.series = new RegExp(series as string, 'i');
+    
+    if (startDate || endDate) {
+      filter.startTime = {};
+      if (startDate) filter.startTime.$gte = new Date(startDate as string);
+      if (endDate) filter.startTime.$lte = new Date(endDate as string);
     }
-  });
+
+    const results = await CricketMatch.find(filter)
+      .sort({ startTime: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean();
+
+    const total = await CricketMatch.countDocuments(filter);
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: {
+        results: results || [],
+        pagination: {
+          current: Number(page),
+          pages: Math.ceil(total / Number(limit)),
+          total: total || 0,
+          limit: Number(limit)
+        }
+      },
+      warning: 'API unavailable - using database fallback'
+    });
+  }
 });
 
 // Get cricket match by ID
