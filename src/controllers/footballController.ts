@@ -3,6 +3,9 @@ import { FootballMatch } from '../models/FootballMatch';
 import { redisClient } from '../utils/redis';
 import { StatusCodes } from 'http-status-codes';
 import { asyncHandler } from '../middleware/errorHandler';
+import { sportsmonksService } from '../services/sportsmonksService';
+import { transformSportsMonksMatchToFrontend } from '../utils/sportsmonksTransformers';
+import { logger } from '../utils/logger';
 
 // Get all football matches with pagination and filters
 export const getFootballMatches = asyncHandler(async (req: Request, res: Response) => {
@@ -71,27 +74,61 @@ export const getFootballMatches = asyncHandler(async (req: Request, res: Respons
 
 // Get live football matches
 export const getLiveFootballMatches = asyncHandler(async (req: Request, res: Response) => {
-  // Try to get from cache first
-  const cachedData = await redisClient.get('live_football_matches');
-  
-  if (cachedData) {
-    return res.status(StatusCodes.OK).json({
+  try {
+    // Try to get from cache first
+    const cachedData = await redisClient.get('live_football_matches');
+    
+    if (cachedData) {
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: JSON.parse(cachedData)
+      });
+    }
+
+    logger.info('Fetching live football matches from SportsMonks...');
+    
+    // Fetch from SportsMonks API
+    const apiMatches = await sportsmonksService.getLiveMatches('football');
+    
+    // Transform API response to frontend format
+    const transformedMatches = apiMatches.map((match: any) => 
+      transformSportsMonksMatchToFrontend(match, 'football')
+    );
+    
+    // Filter only live matches
+    const liveMatches = transformedMatches.filter(match => 
+      match.status === 'live'
+    );
+    
+    logger.info(`Received ${liveMatches.length} live football matches from SportsMonks`);
+    
+    // Cache for 30 seconds
+    const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 30;
+    await redisClient.set('live_football_matches', JSON.stringify(liveMatches), cacheDuration);
+
+    res.status(StatusCodes.OK).json({
       success: true,
-      data: JSON.parse(cachedData)
+      data: liveMatches
+    });
+  } catch (error: any) {
+    logger.error('Error fetching live football matches from SportsMonks:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+    });
+    
+    // Fallback to database if API fails
+    const dbMatches = await FootballMatch.find({ status: 'live' })
+      .sort({ startTime: -1 })
+      .lean();
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: dbMatches,
+      warning: 'Using database fallback - SportsMonks API unavailable',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-
-  const liveMatches = await FootballMatch.find({ status: 'live' })
-    .sort({ startTime: -1 })
-    .lean();
-
-  // Cache for 30 seconds
-  await redisClient.set('live_football_matches', JSON.stringify(liveMatches), 30);
-
-  res.status(StatusCodes.OK).json({
-    success: true,
-    data: liveMatches
-  });
 });
 
 // Get football fixtures (upcoming matches)

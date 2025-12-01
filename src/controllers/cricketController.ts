@@ -3,7 +3,9 @@ import { CricketMatch } from '../models/CricketMatch';
 import { redisClient } from '../utils/redis';
 import { StatusCodes } from 'http-status-codes';
 import { asyncHandler } from '../middleware/errorHandler';
+import { sportsmonksService } from '../services/sportsmonksService';
 import { cricketApiService } from '../services/cricketApiService';
+import { transformSportsMonksMatchToFrontend } from '../utils/sportsmonksTransformers';
 import { transformApiMatchToFrontend } from '../utils/matchTransformers';
 import { logger } from '../utils/logger';
 
@@ -85,28 +87,68 @@ export const getLiveCricketMatches = asyncHandler(async (req: Request, res: Resp
       });
     }
 
-    // Fetch from external API
-    const apiMatches = await cricketApiService.getLiveMatches();
+    logger.info('Fetching live cricket matches from SportsMonks...');
     
-    // Transform API response to frontend format
-    const transformedMatches = apiMatches.map(transformApiMatchToFrontend);
-    
-    // Filter only live matches (API might return some completed)
-    const liveMatches = transformedMatches.filter(match => 
-      match.status === 'live' || (match.matchStarted && !match.matchEnded)
-    );
-    
-    // Cache duration: 30 seconds in development, 15 minutes in production
-    // This keeps us within the 100 requests/day API limit
-    const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 30; // 15 min vs 30 sec
-    await redisClient.set('live_cricket_matches', JSON.stringify(liveMatches), cacheDuration);
+    try {
+      // Try SportsMonks first
+      const apiMatches = await sportsmonksService.getLiveMatches('cricket');
+      
+      // Transform API response to frontend format
+      const transformedMatches = apiMatches.map((match: any) => 
+        transformSportsMonksMatchToFrontend(match, 'cricket')
+      );
+      
+      // Filter only live matches
+      const liveMatches = transformedMatches.filter(match => 
+        match.status === 'live'
+      );
+      
+      logger.info(`Received ${liveMatches.length} live cricket matches from SportsMonks`);
+      
+      // Cache duration: 30 seconds in development, 15 minutes in production
+      const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 30;
+      await redisClient.set('live_cricket_matches', JSON.stringify(liveMatches), cacheDuration);
 
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: liveMatches
-    });
+      res.status(StatusCodes.OK).json({
+        success: true,
+        data: liveMatches
+      });
+    } catch (sportsmonksError: any) {
+      // If SportsMonks fails (403 = plan doesn't include cricket), fallback to Cricket Data API
+      if (sportsmonksError.response?.status === 403) {
+        logger.warn('SportsMonks cricket not available (403), falling back to Cricket Data API');
+        
+        try {
+          const cricketDataMatches = await cricketApiService.getLiveMatches();
+          const transformedMatches = cricketDataMatches.map(transformApiMatchToFrontend);
+          const liveMatches = transformedMatches.filter(match => 
+            match.status === 'live' || (match.matchStarted && !match.matchEnded)
+          );
+          
+          const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 30;
+          await redisClient.set('live_cricket_matches', JSON.stringify(liveMatches), cacheDuration);
+          
+          res.status(StatusCodes.OK).json({
+            success: true,
+            data: liveMatches,
+            source: 'cricket_data_api'
+          });
+        } catch (cricketDataError: any) {
+          logger.error('Both SportsMonks and Cricket Data API failed, using database fallback');
+          throw cricketDataError; // Will be caught by outer catch
+        }
+      } else {
+        throw sportsmonksError; // Re-throw if not a 403
+      }
+    }
   } catch (error: any) {
-    // Fallback to database if API fails
+    logger.error('Error fetching live cricket matches:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+    });
+    
+    // Final fallback to database
     const dbMatches = await CricketMatch.find({ status: 'live' })
       .sort({ startTime: -1 })
       .lean();
@@ -114,7 +156,8 @@ export const getLiveCricketMatches = asyncHandler(async (req: Request, res: Resp
     res.status(StatusCodes.OK).json({
       success: true,
       data: dbMatches,
-      warning: 'Using cached data - API unavailable'
+      warning: 'Using database fallback - APIs unavailable',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -142,11 +185,15 @@ export const getCricketFixtures = asyncHandler(async (req: Request, res: Respons
       });
     }
 
-    // Fetch from external API
-    const apiMatches = await cricketApiService.getUpcomingMatches();
+    logger.info('Fetching upcoming cricket matches from SportsMonks...');
+    
+    // Fetch from SportsMonks API
+    const apiMatches = await sportsmonksService.getUpcomingMatches('cricket');
     
     // Transform API response to frontend format
-    const transformedMatches = apiMatches.map(transformApiMatchToFrontend);
+    const transformedMatches = apiMatches.map((match: any) => 
+      transformSportsMonksMatchToFrontend(match, 'cricket')
+    );
     
     // Filter only upcoming matches
     // The transformer sets status based on matchStarted/matchEnded, but we also check dates
@@ -284,10 +331,14 @@ export const getCricketResults = asyncHandler(async (req: Request, res: Response
     }
 
     // Fetch from external API
-    const apiMatches = await cricketApiService.getCompletedMatches();
+    logger.info('Fetching completed cricket matches from SportsMonks...');
+    
+    const apiMatches = await sportsmonksService.getCompletedMatches('cricket');
     
     // Transform API response to frontend format
-    const transformedMatches = apiMatches.map(transformApiMatchToFrontend);
+    const transformedMatches = apiMatches.map((match: any) => 
+      transformSportsMonksMatchToFrontend(match, 'cricket')
+    );
     
     // Filter only completed matches
     const completedMatches = transformedMatches.filter(match => 
@@ -403,10 +454,12 @@ export const getCricketMatchById = asyncHandler(async (req: Request, res: Respon
     }
 
     // Fetch from external API
-    const apiMatch = await cricketApiService.getMatchDetails(id);
+    logger.info(`Fetching cricket match details from SportsMonks for ${id}...`);
+    
+    const apiMatch = await sportsmonksService.getMatchDetails(id, 'cricket');
     
     // Transform API response to frontend format
-    const transformedMatch = transformApiMatchToFrontend(apiMatch);
+    const transformedMatch = transformSportsMonksMatchToFrontend(apiMatch, 'cricket');
 
     // Cache for 1 minute (live matches change frequently)
     await redisClient.set(cacheKey, JSON.stringify(transformedMatch), 60);
@@ -453,7 +506,9 @@ export const getCricketMatchCommentary = asyncHandler(async (req: Request, res: 
     }
 
     // Fetch from external API
-    const commentary = await cricketApiService.getCommentary(id);
+    logger.info(`Fetching cricket commentary from SportsMonks for ${id}...`);
+    
+    const commentary = await sportsmonksService.getCommentary(id, 'cricket');
 
     // Cache for 30 seconds (commentary updates frequently)
     await redisClient.set(cacheKey, JSON.stringify(commentary), 30);

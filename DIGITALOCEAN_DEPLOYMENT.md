@@ -61,6 +61,14 @@ FRONTEND_URL=https://your-frontend-domain
 SMTP_HOST=...
 SMTP_USER=...
 SMTP_PASS=...
+
+# SportsMonks API Configuration (for live scores)
+# Base URL format: /v3/{sport} (e.g., /v3/cricket, /v3/football)
+SPORTMONKS_BASE_URL=https://api.sportmonks.com/v3/cricket
+SPORTMONKS_API_TOKEN=your_sportmonks_api_token_here
+
+# Cricket Data API (fallback for cricket when SportsMonks is unavailable)
+CRICKET_API_KEY=your_cricket_api_key_here
 ```
 (See `env.example` for the full list.)
 

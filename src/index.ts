@@ -24,6 +24,7 @@ import commentRoutes from './routes/comment';
 import newsRoutes from './routes/news';
 import mediaRoutes from './routes/media';
 import adminRoutes from './routes/admin';
+import testRoutes from './routes/test';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -154,6 +155,7 @@ app.use('/api/comments', commentRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/test', testRoutes);
 
 // Initialize Socket.IO
 initializeSocketIO(io);

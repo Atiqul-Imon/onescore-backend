@@ -14,7 +14,9 @@
     "lint:fix": "eslint src/**/*.ts --fix",
     "type-check": "tsc --noEmit",
     "seed:threads": "ts-node src/scripts/seedThreads.ts",
-    "test:api": "ts-node src/scripts/testCricketApi.ts"
+    "test:api": "ts-node src/scripts/testCricketApi.ts",
+    "test:sportsmonks": "ts-node src/scripts/testSportsMonks.ts",
+    "debug:sportsmonks": "ts-node src/scripts/debugSportsMonks.ts"
   },
   "dependencies": {
     "axios": "^1.6.2",
