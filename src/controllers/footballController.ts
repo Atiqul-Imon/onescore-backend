@@ -206,14 +206,16 @@ export const getFootballResults = asyncHandler(async (req: Request, res: Respons
       transformSportsMonksMatchToFrontend(match, 'football')
     );
     
-    // Filter for recent matches (last 30 days) and sort by start time (most recent first)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    // Sort by start time (most recent first) - show all available matches
+    // For production: Show matches from last 2 years to ensure we have data
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
     
     const recentMatches = transformedMatches.filter((match: any) => {
       if (!match.startTime) return false;
       const matchDate = new Date(match.startTime);
-      return matchDate >= thirtyDaysAgo;
+      // Include matches from the last 2 years
+      return matchDate >= twoYearsAgo;
     });
     
     recentMatches.sort((a: any, b: any) => {
