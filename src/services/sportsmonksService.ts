@@ -116,21 +116,63 @@ class SportsMonksService {
       logger.info(`Using base URL: ${client.defaults.baseURL}`);
       logger.info(`Token configured: ${this.config.apiToken ? 'Yes' : 'No'} (length: ${this.config.apiToken?.length || 0})`);
       
-      const response = await client.get('/livescores/inplay', {
-        params: {
-          include: 'scores,participants',
-        },
-      });
+      // Try /livescores/inplay first (requires paid plan)
+      try {
+        const response = await client.get('/livescores/inplay', {
+          params: {
+            include: 'scores,participants',
+          },
+        });
 
-      if (response.data?.data) {
-        const matches = response.data.data;
-        logger.info(`Received ${matches.length} live ${sport} matches`);
+        if (response.data?.data && Array.isArray(response.data.data) && response.data.data.length > 0) {
+          const matches = response.data.data;
+          logger.info(`Received ${matches.length} live ${sport} matches from /livescores/inplay`);
 
-        // Cache duration: 30 seconds in development, 15 minutes in production
-        const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 30;
-        await redisClient.set(cacheKey, JSON.stringify(matches), cacheDuration);
+          // Cache duration: 30 seconds in development, 15 minutes in production
+          const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 30;
+          await redisClient.set(cacheKey, JSON.stringify(matches), cacheDuration);
 
-        return matches;
+          return matches;
+        }
+      } catch (inplayError: any) {
+        // If /livescores/inplay fails (404/403), try /fixtures with state_id filter
+        if (inplayError.response?.status === 404 || inplayError.response?.status === 403) {
+          logger.info(`/livescores/inplay not available (${inplayError.response?.status}), trying /fixtures with state filter...`);
+          
+          try {
+            const fixturesResponse = await client.get('/fixtures', {
+              params: {
+                include: 'scores,participants',
+                per_page: 50,
+              },
+            });
+
+            const allFixtures = fixturesResponse.data?.data || [];
+            const now = new Date();
+            
+            // Filter for matches that are currently in progress (state_id 3 = In Progress)
+            const liveMatches = allFixtures.filter((match: any) => {
+              if (match.state_id === 3) return true; // In Progress
+              // Also check if match started but not finished
+              if (match.starting_at) {
+                const startTime = new Date(match.starting_at);
+                const endTime = match.ending_at ? new Date(match.ending_at) : new Date(startTime.getTime() + 3 * 60 * 60 * 1000); // Default 3 hours
+                return now >= startTime && now <= endTime && match.state_id !== 5;
+              }
+              return false;
+            });
+
+            if (liveMatches.length > 0) {
+              logger.info(`Found ${liveMatches.length} live ${sport} matches from /fixtures`);
+              const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 30;
+              await redisClient.set(cacheKey, JSON.stringify(liveMatches), cacheDuration);
+              return liveMatches;
+            }
+          } catch (fixturesError: any) {
+            logger.error(`Error fetching fixtures for live matches:`, fixturesError.message);
+          }
+        }
+        throw inplayError; // Re-throw if it's not a 404/403
       }
 
       return [];
