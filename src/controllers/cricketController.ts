@@ -390,32 +390,87 @@ export const getCricketResults = asyncHandler(async (req: Request, res: Response
 export const getCricketMatchById = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
 
-  // Try to get from cache first
-  const cachedData = await redisClient.get(`cricket_match:${id}`);
-  
-  if (cachedData) {
-    return res.status(StatusCodes.OK).json({
+  try {
+    // Try to get from cache first
+    const cacheKey = `cricket_match:${id}`;
+    const cachedData = await redisClient.get(cacheKey);
+    
+    if (cachedData) {
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: JSON.parse(cachedData)
+      });
+    }
+
+    // Fetch from external API
+    const apiMatch = await cricketApiService.getMatchDetails(id);
+    
+    // Transform API response to frontend format
+    const transformedMatch = transformApiMatchToFrontend(apiMatch);
+
+    // Cache for 1 minute (live matches change frequently)
+    await redisClient.set(cacheKey, JSON.stringify(transformedMatch), 60);
+
+    res.status(StatusCodes.OK).json({
       success: true,
-      data: JSON.parse(cachedData)
+      data: transformedMatch
+    });
+  } catch (error: any) {
+    logger.error(`Error fetching match details for ${id}:`, error);
+    
+    // Fallback to database
+    const match = await CricketMatch.findById(id).lean();
+
+    if (!match) {
+      return res.status(StatusCodes.NOT_FOUND).json({
+        success: false,
+        message: 'Cricket match not found'
+      });
+    }
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: match,
+      warning: 'Using database fallback - API unavailable'
     });
   }
+});
 
-  const match = await CricketMatch.findById(id).lean();
+// Get cricket match commentary
+export const getCricketMatchCommentary = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
 
-  if (!match) {
-    return res.status(StatusCodes.NOT_FOUND).json({
-      success: false,
-      message: 'Cricket match not found'
+  try {
+    // Try to get from cache first
+    const cacheKey = `cricket_commentary:${id}`;
+    const cachedData = await redisClient.get(cacheKey);
+    
+    if (cachedData) {
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: JSON.parse(cachedData)
+      });
+    }
+
+    // Fetch from external API
+    const commentary = await cricketApiService.getCommentary(id);
+
+    // Cache for 30 seconds (commentary updates frequently)
+    await redisClient.set(cacheKey, JSON.stringify(commentary), 30);
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: commentary
+    });
+  } catch (error: any) {
+    logger.error(`Error fetching commentary for ${id}:`, error);
+    
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: [],
+      warning: 'Commentary unavailable - API error'
     });
   }
-
-  // Cache for 1 minute
-  await redisClient.set(`cricket_match:${id}`, JSON.stringify(match), 60);
-
-  res.status(StatusCodes.OK).json({
-    success: true,
-    data: match
-  });
 });
 
 // Get cricket series

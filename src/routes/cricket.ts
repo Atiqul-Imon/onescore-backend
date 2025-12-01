@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { 
   getCricketMatches, 
   getCricketMatchById, 
+  getCricketMatchCommentary,
   getLiveCricketMatches,
   getCricketFixtures,
   getCricketResults,
@@ -31,6 +32,7 @@ router.get('/matches/live', getLiveCricketMatches);
 router.get('/matches/fixtures', validatePagination, validateDateRange, getCricketFixtures);
 router.get('/matches/results', validatePagination, validateDateRange, getCricketResults);
 router.get('/matches/:id', validateMatchId, getCricketMatchById);
+router.get('/matches/:id/commentary', validateMatchId, getCricketMatchCommentary);
 router.get('/series', validatePagination, getCricketSeries);
 router.get('/teams', getCricketTeamSummaries);
 router.get('/teams/:slug', validateTeamSlug, getCricketTeamDetail);
