@@ -208,6 +208,17 @@ export const getCricketFixtures = asyncHandler(async (req: Request, res: Respons
       data: result
     });
   } catch (error: any) {
+    logger.error('Error fetching fixtures from API:', error);
+    
+    // Log the error details for debugging
+    if (error.response) {
+      logger.error('API Error Response:', {
+        status: error.response.status,
+        data: error.response.data,
+        url: error.config?.url
+      });
+    }
+    
     // Fallback to database if API fails
     const skip = (Number(page) - 1) * Number(limit);
     
@@ -230,18 +241,20 @@ export const getCricketFixtures = asyncHandler(async (req: Request, res: Respons
 
     const total = await CricketMatch.countDocuments(filter);
 
+    // Return empty result with error message if no data
     res.status(StatusCodes.OK).json({
       success: true,
       data: {
-        fixtures,
+        fixtures: fixtures || [],
         pagination: {
           current: Number(page),
           pages: Math.ceil(total / Number(limit)),
-          total,
+          total: total || 0,
           limit: Number(limit)
         }
       },
-      warning: 'Using cached data - API unavailable'
+      warning: 'API unavailable - using database fallback',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });

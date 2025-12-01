@@ -103,8 +103,17 @@ class CricketApiService {
       const cachedData = await redisClient.get(cacheKey);
       
       if (cachedData) {
+        logger.info('Returning cached upcoming matches');
         return JSON.parse(cachedData);
       }
+
+      // Check if API key is configured
+      if (!this.config.apiKey) {
+        logger.error('CRICKET_API_KEY is not configured');
+        throw new Error('Cricket API key is not configured');
+      }
+
+      logger.info('Fetching upcoming matches from Cricket Data API...');
 
       // Cricket Data API: Get all matches and filter for upcoming
       // Note: The API's status=upcoming might not work, so we fetch all and filter
@@ -112,12 +121,20 @@ class CricketApiService {
         params: {} // Get all matches, we'll filter client-side
       });
       
+      logger.info(`API Response status: ${response.data.status}, matches received: ${response.data.data?.length || 0}`);
+      
       // Response format: { status: "success", data: [...], info: {...} }
       if (response.data.status !== 'success') {
+        logger.error('API returned non-success status:', response.data);
         throw new Error(response.data.message || 'API returned non-success status');
       }
       
       const allMatches = response.data.data || [];
+      
+      if (allMatches.length === 0) {
+        logger.warn('API returned empty matches array');
+        return [];
+      }
       
       // Filter for truly upcoming matches:
       // 1. Not started yet (matchStarted: false)
@@ -125,20 +142,31 @@ class CricketApiService {
       // 3. Date is in the future
       const now = new Date();
       const upcomingMatches = allMatches.filter((match: any) => {
+        if (!match.dateTimeGMT && !match.date) {
+          return false; // Skip matches without date
+        }
         const matchDate = new Date(match.dateTimeGMT || match.date);
-        return !match.matchStarted && 
-               !match.matchEnded && 
-               matchDate > now;
+        const isUpcoming = !match.matchStarted && 
+                          !match.matchEnded && 
+                          matchDate > now;
+        return isUpcoming;
       });
+
+      logger.info(`Filtered ${upcomingMatches.length} upcoming matches from ${allMatches.length} total matches`);
 
       // Cache duration: 15 minutes in production, 5 minutes in development
       const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 300;
       await redisClient.set(cacheKey, JSON.stringify(upcomingMatches), cacheDuration);
 
       return upcomingMatches;
-    } catch (error) {
-      logger.error('Error fetching upcoming cricket matches:', error);
-      throw new Error('Failed to fetch upcoming cricket matches');
+    } catch (error: any) {
+      logger.error('Error fetching upcoming cricket matches:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        config: error.config?.url
+      });
+      throw error; // Re-throw to let controller handle it
     }
   }
 
