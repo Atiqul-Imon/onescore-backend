@@ -129,39 +129,117 @@ export const getCricketFixtures = asyncHandler(async (req: Request, res: Respons
     endDate 
   } = req.query;
 
-  const skip = (Number(page) - 1) * Number(limit);
-  
-  const filter: any = { status: 'upcoming' };
-  
-  if (format) filter.format = format;
-  if (series) filter.series = new RegExp(series as string, 'i');
-  
-  if (startDate || endDate) {
-    filter.startTime = {};
-    if (startDate) filter.startTime.$gte = new Date(startDate as string);
-    if (endDate) filter.startTime.$lte = new Date(endDate as string);
-  }
+  try {
+    // Try to get from cache first
+    const cacheKey = `cricket_fixtures:${JSON.stringify(req.query)}`;
+    const cachedData = await redisClient.get(cacheKey);
+    
+    if (cachedData) {
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: JSON.parse(cachedData)
+      });
+    }
 
-  const fixtures = await CricketMatch.find(filter)
-    .sort({ startTime: 1 })
-    .skip(skip)
-    .limit(Number(limit))
-    .lean();
+    // Fetch from external API
+    const apiMatches = await cricketApiService.getUpcomingMatches();
+    
+    // Transform API response to frontend format
+    const transformedMatches = apiMatches.map(transformApiMatchToFrontend);
+    
+    // Filter only upcoming matches (API might return some live/completed)
+    const upcomingMatches = transformedMatches.filter(match => 
+      match.status === 'upcoming' || (!match.matchStarted && match.status !== 'completed')
+    );
 
-  const total = await CricketMatch.countDocuments(filter);
+    // Apply filters if provided
+    let filteredMatches = upcomingMatches;
+    
+    if (format) {
+      filteredMatches = filteredMatches.filter(m => m.format === format);
+    }
+    
+    if (series) {
+      const seriesRegex = new RegExp(series as string, 'i');
+      filteredMatches = filteredMatches.filter(m => 
+        m.series && seriesRegex.test(m.series)
+      );
+    }
+    
+    if (startDate || endDate) {
+      filteredMatches = filteredMatches.filter(m => {
+        const matchDate = new Date(m.startTime);
+        if (startDate && matchDate < new Date(startDate as string)) return false;
+        if (endDate && matchDate > new Date(endDate as string)) return false;
+        return true;
+      });
+    }
 
-  res.status(StatusCodes.OK).json({
-    success: true,
-    data: {
-      fixtures,
+    // Sort by start time (ascending - earliest first)
+    filteredMatches.sort((a, b) => 
+      new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    );
+
+    // Apply pagination
+    const skip = (Number(page) - 1) * Number(limit);
+    const paginatedMatches = filteredMatches.slice(skip, skip + Number(limit));
+    const total = filteredMatches.length;
+
+    const result = {
+      fixtures: paginatedMatches,
       pagination: {
         current: Number(page),
         pages: Math.ceil(total / Number(limit)),
         total,
         limit: Number(limit)
       }
+    };
+
+    // Cache duration: 15 minutes in production, 5 minutes in development
+    const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 300;
+    await redisClient.set(cacheKey, JSON.stringify(result), cacheDuration);
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: result
+    });
+  } catch (error: any) {
+    // Fallback to database if API fails
+    const skip = (Number(page) - 1) * Number(limit);
+    
+    const filter: any = { status: 'upcoming' };
+    
+    if (format) filter.format = format;
+    if (series) filter.series = new RegExp(series as string, 'i');
+    
+    if (startDate || endDate) {
+      filter.startTime = {};
+      if (startDate) filter.startTime.$gte = new Date(startDate as string);
+      if (endDate) filter.startTime.$lte = new Date(endDate as string);
     }
-  });
+
+    const fixtures = await CricketMatch.find(filter)
+      .sort({ startTime: 1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean();
+
+    const total = await CricketMatch.countDocuments(filter);
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: {
+        fixtures,
+        pagination: {
+          current: Number(page),
+          pages: Math.ceil(total / Number(limit)),
+          total,
+          limit: Number(limit)
+        }
+      },
+      warning: 'Using cached data - API unavailable'
+    });
+  }
 });
 
 // Get cricket results (completed matches)
