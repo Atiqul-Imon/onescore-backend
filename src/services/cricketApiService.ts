@@ -115,9 +115,28 @@ class CricketApiService {
 
       logger.info('Fetching upcoming matches from Cricket Data API...');
 
-      // Cricket Data API: Get all matches and filter for upcoming
-      // Note: The API's status=upcoming might not work, so we fetch all and filter
-      const response = await this.client.get('/matches', {
+      // Cricket Data API: Try to get upcoming matches
+      // First try with status=upcoming parameter, then fallback to all matches
+      let response;
+      try {
+        response = await this.client.get('/matches', {
+          params: { status: 'upcoming' } // Try with status parameter first
+        });
+        
+        // If API returns matches with status=upcoming, use them
+        if (response.data.status === 'success' && response.data.data && response.data.data.length > 0) {
+          logger.info(`Found ${response.data.data.length} matches with status=upcoming`);
+          const upcomingMatches = response.data.data;
+          const cacheDuration = process.env.NODE_ENV === 'production' ? 900 : 300;
+          await redisClient.set(cacheKey, JSON.stringify(upcomingMatches), cacheDuration);
+          return upcomingMatches;
+        }
+      } catch (error) {
+        logger.warn('Status=upcoming parameter not supported, fetching all matches...');
+      }
+
+      // Fallback: Get all matches and filter for upcoming
+      response = await this.client.get('/matches', {
         params: {} // Get all matches, we'll filter client-side
       });
       
