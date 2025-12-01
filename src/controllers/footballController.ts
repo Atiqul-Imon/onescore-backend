@@ -179,48 +179,117 @@ export const getFootballFixtures = asyncHandler(async (req: Request, res: Respon
 
 // Get football results (completed matches)
 export const getFootballResults = asyncHandler(async (req: Request, res: Response) => {
-  const { 
-    page = 1, 
-    limit = 20, 
-    league, 
-    season, 
-    startDate, 
-    endDate 
-  } = req.query;
+  try {
+    const { 
+      page = 1, 
+      limit = 20
+    } = req.query;
 
-  const skip = (Number(page) - 1) * Number(limit);
-  
-  const filter: any = { status: 'finished' };
-  
-  if (league) filter.league = new RegExp(league as string, 'i');
-  if (season) filter.season = season;
-  
-  if (startDate || endDate) {
-    filter.startTime = {};
-    if (startDate) filter.startTime.$gte = new Date(startDate as string);
-    if (endDate) filter.startTime.$lte = new Date(endDate as string);
-  }
+    // Try to get from cache first
+    const cacheKey = `football_results:${page}:${limit}`;
+    const cachedData = await redisClient.get(cacheKey);
+    
+    if (cachedData) {
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: JSON.parse(cachedData)
+      });
+    }
 
-  const results = await FootballMatch.find(filter)
-    .sort({ startTime: -1 })
-    .skip(skip)
-    .limit(Number(limit))
-    .lean();
+    logger.info('Fetching completed football matches from SportsMonks...');
+    
+    // Fetch from SportsMonks API
+    const apiMatches = await sportsmonksService.getCompletedMatches('football');
+    
+    // Transform API response to frontend format
+    const transformedMatches = apiMatches.map((match: any) => 
+      transformSportsMonksMatchToFrontend(match, 'football')
+    );
+    
+    // Filter for recent matches (last 30 days) and sort by start time (most recent first)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const recentMatches = transformedMatches.filter((match: any) => {
+      if (!match.startTime) return false;
+      const matchDate = new Date(match.startTime);
+      return matchDate >= thirtyDaysAgo;
+    });
+    
+    recentMatches.sort((a: any, b: any) => {
+      const dateA = new Date(a.startTime || 0).getTime();
+      const dateB = new Date(b.startTime || 0).getTime();
+      return dateB - dateA; // Most recent first
+    });
 
-  const total = await FootballMatch.countDocuments(filter);
+    // Paginate
+    const skip = (Number(page) - 1) * Number(limit);
+    const paginatedResults = recentMatches.slice(skip, skip + Number(limit));
 
-  res.status(StatusCodes.OK).json({
-    success: true,
-    data: {
-      results,
+    const result = {
+      results: paginatedResults,
       pagination: {
         current: Number(page),
-        pages: Math.ceil(total / Number(limit)),
-        total,
+        pages: Math.ceil(recentMatches.length / Number(limit)),
+        total: recentMatches.length,
         limit: Number(limit)
       }
+    };
+
+    // Cache for 1 hour
+    await redisClient.set(cacheKey, JSON.stringify(result), 3600);
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: result
+    });
+  } catch (error: any) {
+    logger.error('SportsMonks Football API failed, falling back to database:', error);
+    
+    // Fallback to database
+    const { 
+      page = 1, 
+      limit = 20, 
+      league, 
+      season, 
+      startDate, 
+      endDate 
+    } = req.query;
+
+    const skip = (Number(page) - 1) * Number(limit);
+    
+    const filter: any = { status: 'finished' };
+    
+    if (league) filter.league = new RegExp(league as string, 'i');
+    if (season) filter.season = season;
+    
+    if (startDate || endDate) {
+      filter.startTime = {};
+      if (startDate) filter.startTime.$gte = new Date(startDate as string);
+      if (endDate) filter.startTime.$lte = new Date(endDate as string);
     }
-  });
+
+    const results = await FootballMatch.find(filter)
+      .sort({ startTime: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean();
+
+    const total = await FootballMatch.countDocuments(filter);
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      data: {
+        results,
+        pagination: {
+          current: Number(page),
+          pages: Math.ceil(total / Number(limit)),
+          total,
+          limit: Number(limit)
+        }
+      }
+    });
+  }
 });
 
 // Get football match by ID

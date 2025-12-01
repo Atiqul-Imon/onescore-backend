@@ -275,9 +275,24 @@ class SportsMonksService {
 
       const allMatches = response.data?.data || [];
 
-      // Filter for completed matches (state_id 5 = Finished)
+      // Filter for completed matches (state_id 5 = Finished) and recent (last 90 days)
+      const now = new Date();
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      
       const completedMatches = allMatches.filter((match: any) => {
-        return match.state_id === 5; // 5 = Finished
+        if (match.state_id !== 5) return false; // Must be finished
+        if (!match.starting_at) return false;
+        const matchDate = new Date(match.starting_at);
+        // Only include matches from the last 90 days
+        return matchDate >= ninetyDaysAgo && matchDate <= now;
+      });
+
+      // Sort by date (most recent first)
+      completedMatches.sort((a: any, b: any) => {
+        const dateA = new Date(a.starting_at || 0).getTime();
+        const dateB = new Date(b.starting_at || 0).getTime();
+        return dateB - dateA;
       });
 
       // Cache for 1 hour
