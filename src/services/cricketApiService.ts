@@ -137,19 +137,50 @@ class CricketApiService {
       }
       
       // Filter for truly upcoming matches:
-      // 1. Not started yet (matchStarted: false)
-      // 2. Not ended (matchEnded: false)
-      // 3. Date is in the future
+      // Priority: matchStarted === false, then check date
       const now = new Date();
+      const oneWeekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      
       const upcomingMatches = allMatches.filter((match: any) => {
-        if (!match.dateTimeGMT && !match.date) {
-          return false; // Skip matches without date
+        // Skip if explicitly ended
+        if (match.matchEnded === true) {
+          return false;
         }
-        const matchDate = new Date(match.dateTimeGMT || match.date);
-        const isUpcoming = !match.matchStarted && 
-                          !match.matchEnded && 
-                          matchDate > now;
-        return isUpcoming;
+        
+        // If match hasn't started, it's potentially upcoming
+        if (match.matchStarted === false || match.matchStarted === undefined) {
+          // If no date, still consider it upcoming if not started
+          if (!match.dateTimeGMT && !match.date) {
+            return true; // Include matches without date if not started
+          }
+          
+          try {
+            const matchDate = new Date(match.dateTimeGMT || match.date);
+            // Include if date is in the future or within next week (for scheduling)
+            return matchDate > now || matchDate <= oneWeekFromNow;
+          } catch (error) {
+            // If date parsing fails but match not started, include it
+            logger.warn(`Invalid date format for match: ${match.id || 'unknown'}`, error);
+            return true;
+          }
+        }
+        
+        // If match started but not ended, it's live (not upcoming)
+        if (match.matchStarted === true) {
+          return false;
+        }
+        
+        // Default: check date
+        if (!match.dateTimeGMT && !match.date) {
+          return false;
+        }
+        
+        try {
+          const matchDate = new Date(match.dateTimeGMT || match.date);
+          return matchDate > now;
+        } catch (error) {
+          return false;
+        }
       });
 
       logger.info(`Filtered ${upcomingMatches.length} upcoming matches from ${allMatches.length} total matches`);
