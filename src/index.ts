@@ -36,11 +36,30 @@ import { initializeSocketIO } from './utils/socket';
 
 const app = express();
 const server = createServer(app);
+// Socket.IO CORS configuration - support multiple origins
+const socketCorsOrigins = process.env['CORS_ORIGIN'] 
+  ? process.env['CORS_ORIGIN'].split(',').map(origin => origin.trim())
+  : ["http://localhost:3000"];
+
 const io = new SocketIOServer(server, {
   cors: {
-    origin: process.env['CORS_ORIGIN'] || "http://localhost:3000",
-    methods: ["GET", "POST"]
-  }
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, etc.)
+      if (!origin) return callback(null, true);
+      
+      // Check if origin is in allowed list
+      if (socketCorsOrigins.includes(origin) || socketCorsOrigins.includes('*')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ["GET", "POST"],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  },
+  transports: ['websocket', 'polling'], // Support both WebSocket and polling
+  allowEIO3: true, // Allow Engine.IO v3 clients
 });
 
 const PORT = process.env['PORT'] || 5000;
